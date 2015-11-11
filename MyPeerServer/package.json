@@ -1,0 +1,14 @@
+{
+  "name": "MyPeerServer",
+  "version": "0.0.0",
+  "description": "MyPeerServer",
+  "main": "server.js",
+  "author": {
+    "name": "si553909",
+    "email": ""
+  },
+  "dependencies": {
+    "socket.io": "^1.2.1",
+    "express": "^4.10.6"
+  }
+}

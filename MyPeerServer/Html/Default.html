@@ -1,0 +1,173 @@
+﻿<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head>
+    <title></title>
+    <style>
+        #logging{
+            float:left;
+            position:relative;
+        }
+
+        #log {
+            width: 750px;      
+            height: 500px;     
+            border: 1px solid #000000;
+            -ms-word-wrap: break-word;
+            word-wrap: break-word;
+        }
+
+        #webrtc {
+            color :lightgreen;
+        }
+
+        #sockets {
+            color :crimson;
+            font-weight : bold;
+        }
+
+        #connectedClients{
+            float:right;
+            position:relative;
+        }
+
+        #clients{
+            width: 750px;      
+            height: 500px;    
+            border: 1px solid #000000;
+        }
+    </style>
+</head>
+<body>    
+    <p align="left" id="clientID"></p>
+    <p align="center">        
+        <div><input type=button id="iAmHere" value="I am here" style="width:140px " /></div>
+        <div><input type=button id="sendMessage" value="Establish connection" style="width:140px "/></div>
+        <div><input type=button id="clearLog" value="Clear log" style="width:140px " /></div>
+        <div><input type=button id="sendData" value="Send data" style="width:140px" disabled="disabled" /></div>
+        <input type=text id="text" value="Data" style="width:136px"/>
+    </p>
+    <div id="logging">
+        <label>Logging</label>
+        <p align="left" id="log" />
+    </div>
+    <div id="connectedClients">
+        <label>Connected clients</label>
+        <p align="left" id="clients"></p>
+    </div>
+    <script src="https://code.jquery.com/jquery-2.1.3.min.js"></script>
+    <script src="https://apprtc.appspot.com/js/adapter.js"></script>
+    <script src="/socket.io/socket.io.js"></script>
+    <script src="webRTC.js"></script>
+    <script>
+        var clientID    = 0;
+        var socket      = io();      
+        var webRTCPeers = { clientIDs: [] };
+
+        function onOpen(event) {
+             $('#sendData').prop('disabled', false);
+        };
+       
+        function sendMessage(message) {
+            message.clientID = clientID;
+            socket.emit(message.type, message);
+        }
+
+        function sanitisedClientID(clientID)
+        {
+            return clientID.replace(/\W+/g, '');
+        }
+
+        socket.on('iAmHere', function (message) {
+            var messageClientID = sanitisedClientID(message.clientID);
+
+            if (!webRTCPeers[messageClientID]) {
+                $('#log').append('<div><b>I am here : From client ID <div id="sockets">' + message.clientID + '</div></b></div><br/>');
+
+                webRTCPeers.clientIDs.push(messageClientID);
+                webRTCPeers[messageClientID]  = MyWebRTC(message.clientID, sendMessage, onOpen);
+                var newMessage                = {};
+                newMessage.type               = 'iAmHere';
+                sendMessage(newMessage);
+            }
+        });
+
+        socket.on('connected', function (evt) {
+            clientID = evt.clientID;
+            $('#clientID').append('<div><b>Connected to singaling server as client:</b></div>');
+            $('#clientID').append('<div id="clientID">' + clientID + '</div><br/>');           
+        });
+
+        socket.on('candidate', function (message) {
+            var messageClientID = sanitisedClientID(message.clientID);
+
+            if (webRTCPeers[message.clientID]) {
+                console.log(message);
+                $('#log').append('<div><b>Candidate data recieved : From client ID <div id="sockets">' + message.clientID + '</div></b></div>');
+                $('#log').append(('<div>' + message.data.candidate + '</div><br/>').replace(/\r/g, '<br>'));
+
+                webRTCPeers[message.clientID].setCandidate(message.data);
+            }
+        });
+       
+        socket.on('offer', function (message) {
+            var messageClientID = sanitisedClientID(message.clientID);
+
+            if (webRTCPeers[messageClientID]) {
+                console.log(message);
+                $('#log').append('<div><b>Offer data recieved : From client ID <div id="sockets">' + message.clientID + '</div></b></div>');
+                $('#log').append(('<div>' + message.sdp + '</div><br/>').replace(/\r/g, '<br>'));
+
+                message.destinationID = message.clientID;
+                webRTCPeers[messageClientID].sendAnswer(message);
+                //TODO:If exists don't add
+                $('#clients').append(('<div id="sockets">' + message.clientID + '</div>').replace(/\r/g, '<br>'));
+            }
+        });
+
+
+        socket.on('answer', function (message) {
+            var messageClientID = sanitisedClientID(message.clientID);
+
+            if (webRTCPeers[messageClientID]) {
+                console.log(message);
+                $('#log').append('<div><b>Answer data recieved : From client ID <div id="sockets">' + message.clientID + '</div></b></div>');
+                $('#log').append(('<div>' + message.sdp + '</div><br/>').replace(/\r/g, '<br>'));
+
+                webRTCPeers[messageClientID].acceptOffer(message);
+                //TODO:If exists don't add
+                $('#clients').append(('<div id="sockets">' + message.clientID + '</div>'));
+            }
+        });
+
+        $('#sendMessage').on('click', function () {
+            $('#clients').empty()
+            $.each(webRTCPeers.clientIDs, function (key, value) {
+                webRTCPeers[value].startOffer();
+                $('#log').append('<div>Offer sent over sockets to :<b id="sockets">' + value + '</b></div>');
+            });
+        });
+
+        $('#clearLog').on('click', function () {           
+            $('#log').empty();
+        });
+
+        $('#iAmHere').on('click', function () {
+            var newMessage  = {};
+            newMessage.type = 'iAmHere';
+            sendMessage(newMessage);
+        });
+
+        $('#sendData').on('click', function () {
+            //this wont work without correct peer
+            $.each(webRTCPeers.clientIDs, function (key, value) {
+                if (webRTCPeers[value].dataChannel.readyState == 'open') {
+                    webRTCPeers[value].dataChannel.send($('#text').val());
+                    $('#log').append('<div id="webrtc">Data sent via webRTC to <div id="sockets">' + webRTCPeers[value].destinationID + '</div></div>');
+                }                
+            });
+         
+           
+        });
+    </script>
+</body>
+</html>
